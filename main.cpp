@@ -3,8 +3,8 @@
 // Unity format
 
 void start() {
-	Scene* scene = Scene::snowman();
-	//Scene* scene = Scene::snowballSmash();
+	//Scene* scene = Scene::snowman();
+	Scene* scene = Scene::snowballSmash();
 	//Scene* scene = Scene::highspeedSnowballSmash();
 
 	snow_simulator = new SnowSimulation(scene);

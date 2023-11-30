@@ -85,64 +85,44 @@ const Matrix2f Particle::energyDerivative(){
 
 
 #if ENABLE_IMPLICIT
-const Vector2f Particle::deltaForce(const Vector2f& u, const Vector2f& weight_grad){
-	//For detailed explanation, check out the implicit math pdf for details
-	//Before we do the force calculation, we need deltaF, deltaR, and delta(JF^-T)
-	
-	//Finds delta(Fe), where Fe is the elastic deformation gradient
-	//Probably can optimize this expression with parentheses...
-	Matrix2f del_elastic = TIMESTEP*u.outer_product(weight_grad)*def_elastic;
-	
-	//Check to make sure we should do these calculations?
-	if (del_elastic[0][0] < MATRIX_EPSILON && del_elastic[0][1] < MATRIX_EPSILON &&
-		del_elastic[1][0] < MATRIX_EPSILON && del_elastic[1][1] < MATRIX_EPSILON)
-		return Vector2f(0);
+const Vector2f Particle::deltaForce(const Vector2f& u, const Vector2f& weight_grad) {
+    // Calculate delta(Fe) for the elastic deformation gradient
+    Matrix2f del_elastic = TIMESTEP * u.outer_product(weight_grad) * def_elastic;
+    
+    // Skip calculations if delta(Fe) is negligible
+    if (del_elastic.isNegligible(MATRIX_EPSILON))
+        return Vector2f(0);
 
-	//Compute R^T*dF - dF^TR
-	//It is skew symmetric, so we only need to compute one value (three for 3D)
-	float y = (polar_r[0][0]*del_elastic[1][0] + polar_r[1][0]*del_elastic[1][1]) -
-				(polar_r[0][1]*del_elastic[0][0] + polar_r[1][1]*del_elastic[0][1]);
-	//Next we need to compute MS + SM, where S is the hermitian matrix (symmetric for real
-	//valued matrices) of the polar decomposition and M is (R^T*dR); This is equal
-	//to the matrix we just found (R^T*dF ...), so we set them equal to eachother
-	//Since everything is so symmetric, we get a nice system of linear equations
-	//once we multiply everything out. (see pdf for details)
-	//In the case of 2D, we only need to solve for one variable (three for 3D)
-	float x = y / (polar_s[0][0] + polar_s[1][1]);
-	//Final computation is deltaR = R*(R^T*dR)
-	Matrix2f del_rotate = Matrix2f(
-		-polar_r[1][0]*x, polar_r[0][0]*x,
-		-polar_r[1][1]*x, polar_r[0][1]*x
-	);
-	
-	//We need the cofactor matrix of F, JF^-T
-	Matrix2f cofactor = def_elastic.cofactor();
-		
-	//The last matrix we need is delta(JF^-T)
-	//Instead of doing the complicated matrix derivative described in the paper
-	//we can just take the derivative of each individual entry in JF^-T; JF^-T is
-	//the cofactor matrix of F, so we'll just hardcode the whole thing
-	//For example, entry [0][0] for a 3x3 matrix is
-	//	cofactor = e*i - f*h
-	//	derivative = (e*Di + De*i) - (f*Dh + Df*h)
-	//	where the derivatives (capital D) come from our precomputed delta(F)
-	//In the case of 2D, this turns out to be just the cofactor of delta(F)
-	//For 3D, it will not be so simple
-	Matrix2f del_cofactor = del_elastic.cofactor();
+    // Compute skew symmetric part of R^T*dF - dF^TR
+    float y = (polar_r[0][0] * del_elastic[1][0] + polar_r[1][0] * del_elastic[1][1]) -
+              (polar_r[0][1] * del_elastic[0][0] + polar_r[1][1] * del_elastic[0][1]);
 
-	//Calculate "A" as given by the paper
-	//Co-rotational term
-	Matrix2f Ap = del_elastic-del_rotate;
-	Ap *= 2*mu;
-	//Primary contour term
-	cofactor *= cofactor.frobeniusInnerProduct(del_elastic);
-	del_cofactor *= (def_elastic.determinant()-1);
-	cofactor += del_cofactor;
-	cofactor *= lambda;
-	Ap += cofactor;
-	
-	//Put it all together
-	//Parentheses are important; M*M*V is slower than M*(M*V)
-	return volume*(Ap*(def_elastic.transpose()*weight_grad));
+    // Solve for x in the linear system derived from MS + SM
+    float x = y / (polar_s[0][0] + polar_s[1][1]);
+
+    // Compute deltaR = R*(R^T*dR)
+    Matrix2f del_rotate(
+        -polar_r[1][0] * x, polar_r[0][0] * x,
+        -polar_r[1][1] * x, polar_r[0][1] * x
+    );
+    
+    // Compute cofactor matrix of F, JF^-T
+    Matrix2f cofactor = def_elastic.cofactor();
+        
+    // Compute delta(JF^-T) as the cofactor of delta(F)
+    Matrix2f del_cofactor = del_elastic.cofactor();
+
+    // Calculate "A" for the force computation
+    Matrix2f Ap = del_elastic - del_rotate;
+    Ap *= 2 * mu;
+    cofactor *= cofactor.frobeniusInnerProduct(del_elastic);
+    del_cofactor *= (def_elastic.determinant() - 1);
+    cofactor += del_cofactor;
+    cofactor *= lambda;
+    Ap += cofactor;
+    
+    // Combine all components for the final force calculation
+    return volume * (Ap * (def_elastic.transpose() * weight_grad));
 }
 #endif
+
